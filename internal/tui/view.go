@@ -6,8 +6,8 @@ import (
 
 // hasFilterOrSearch returns true if a filter or search is active or applied
 func (m *DashboardModel) hasFilterOrSearch() bool {
-	return m.filterActive || m.searchActive || 
-		m.filterRegex != nil || m.filterInput.Value() != "" || 
+	return m.filterActive || m.searchActive ||
+		m.filterRegex != nil || m.filterInput.Value() != "" ||
 		m.searchTerm != "" || m.searchInput.Value() != ""
 }
 
@@ -26,22 +26,22 @@ func (m *DashboardModel) View() string {
 	if m.showPatternsModal {
 		return m.renderPatternsModal()
 	}
-	
+
 	// Show statistics modal
 	if m.showStatsModal {
 		return m.renderStatsModal()
 	}
-	
+
 	// Show counts modal
 	if m.showCountsModal {
 		return m.renderCountsModal()
 	}
-	
+
 	// Show log viewer modal (fullscreen log viewer)
 	if m.showLogViewerModal {
 		return m.renderLogViewerModal()
 	}
-	
+
 	// Show model selection modal
 	if m.showModelSelectionModal {
 		return m.renderModelSelectionModal()
@@ -130,4 +130,3 @@ func (m *DashboardModel) renderDashboard() string {
 
 	return finalStyle.Render(result)
 }
-

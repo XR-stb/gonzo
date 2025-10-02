@@ -36,7 +36,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case TickMsg:
 		// Update processing rate statistics on every tick
 		m.updateProcessingRateStats()
-		
+
 		// Only refresh charts when not paused
 		if !m.viewPaused {
 			m.updateCharts()
@@ -51,7 +51,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.modalReady = false // Force viewport update
 			}
 		}
-		
+
 		// Animate chat spinner separately
 		if m.chatAiAnalyzing {
 			m.chatSpinnerFrame = (m.chatSpinnerFrame + 1) % 4
@@ -74,7 +74,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.IsChat {
 			// Handle chat AI response
 			m.chatAiAnalyzing = false
-			
+
 			// Remove the "Working on it..." message (should be the last one)
 			if len(m.chatHistory) > 0 {
 				lastIdx := len(m.chatHistory) - 1
@@ -83,14 +83,14 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.chatHistory = m.chatHistory[:lastIdx]
 				}
 			}
-			
+
 			// Add the actual response
 			if msg.Error != nil {
 				m.chatHistory = append(m.chatHistory, fmt.Sprintf("AI: Error: %v", msg.Error))
 			} else {
 				m.chatHistory = append(m.chatHistory, fmt.Sprintf("AI: %s", msg.Result))
 			}
-			m.chatAutoScroll = true  // Enable auto-scroll for new AI response
+			m.chatAutoScroll = true // Enable auto-scroll for new AI response
 		} else {
 			// Handle info section AI analysis
 			m.aiAnalyzing = false
@@ -110,6 +110,23 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chatInput.Focus()
 		}
 		return m, nil
+
+	case string:
+		// 处理复制成功消息
+		if strings.Contains(msg, "复制") || strings.Contains(msg, "剪贴板") {
+			debugLog(fmt.Sprintf("Copy message received: %s", msg))
+			// 设置临时状态消息
+			m.copyMessage = msg
+			m.copyMessageTime = time.Now()
+			return m, nil
+		}
+		if strings.Contains(msg, "复制失败") {
+			debugLog(fmt.Sprintf("Copy failed message: %s", msg))
+			m.copyMessage = msg
+			m.copyMessageTime = time.Now()
+			return m, nil
+		}
+		return m, nil
 	}
 
 	return m, tea.Batch(cmds...)
@@ -126,17 +143,17 @@ func (m *DashboardModel) handleMouseEvent(msg tea.MouseMsg) (tea.Model, tea.Cmd)
 	if m.showModelSelectionModal {
 		return m.handleModelSelectionMouseEvent(msg)
 	}
-	
+
 	// Handle mouse events in help modal
 	if m.showHelp {
 		return m.handleHelpModalMouseEvent(msg)
 	}
-	
+
 	// Handle mouse events in patterns modal
 	if m.showPatternsModal {
 		return m.handlePatternsModalMouseEvent(msg)
 	}
-	
+
 	// Handle mouse events in statistics modal
 	if m.showStatsModal {
 		return m.handleStatsModalMouseEvent(msg)
@@ -146,23 +163,30 @@ func (m *DashboardModel) handleMouseEvent(msg tea.MouseMsg) (tea.Model, tea.Cmd)
 	if m.showCountsModal {
 		return m.handleCountsModalMouseEvent(msg)
 	}
-	
+
 	// Handle mouse events in log viewer modal
 	if m.showLogViewerModal {
 		return m.handleLogViewerModalMouseEvent(msg)
 	}
-	
+
 	// Skip mouse events for input modes
 	if m.filterActive || m.searchActive {
 		return m, nil
 	}
 
+	// Update mouse coordinates for debugging
+	m.lastMouseX = msg.X
+	m.lastMouseY = msg.Y
+
 	switch msg.Action {
 	case tea.MouseActionPress:
 		switch msg.Button {
 		case tea.MouseButtonLeft:
-			// Handle left mouse button clicks to switch sections
-			return m.handleMouseClick(msg.X, msg.Y)
+			// 开始文本选择
+			m.startTextSelection(msg.X, msg.Y)
+			// 处理区域切换
+			m.handleMouseClick(msg.X, msg.Y)
+			return m, nil
 
 		case tea.MouseButtonWheelUp:
 			// Scroll wheel up = move selection up (like up arrow)
@@ -173,6 +197,18 @@ func (m *DashboardModel) handleMouseEvent(msg tea.MouseMsg) (tea.Model, tea.Cmd)
 			// Scroll wheel down = move selection down (like down arrow)
 			m.moveSelection(-1)
 			return m, nil
+		}
+
+	case tea.MouseActionRelease:
+		if msg.Button == tea.MouseButtonLeft {
+			// 结束文本选择
+			m.endTextSelection()
+		}
+
+	case tea.MouseActionMotion:
+		if m.isDragging {
+			// 更新文本选择范围
+			m.updateTextSelection(msg.X, msg.Y)
 		}
 	}
 
@@ -204,6 +240,8 @@ func (m *DashboardModel) handleModalMouseEvent(msg tea.MouseMsg) (tea.Model, tea
 	case tea.MouseActionPress:
 		switch msg.Button {
 		case tea.MouseButtonLeft:
+			// 开始文本选择
+			m.startTextSelection(msg.X, msg.Y)
 			// Handle clicks to switch between modal sections
 			return m.handleModalClick(msg.X, msg.Y)
 
@@ -228,6 +266,18 @@ func (m *DashboardModel) handleModalMouseEvent(msg tea.MouseMsg) (tea.Model, tea
 				m.chatViewport.ScrollDown(1)
 			}
 			return m, nil
+		}
+
+	case tea.MouseActionRelease:
+		if msg.Button == tea.MouseButtonLeft {
+			// 结束文本选择
+			m.endTextSelection()
+		}
+
+	case tea.MouseActionMotion:
+		if m.isDragging {
+			// 更新文本选择范围
+			m.updateTextSelection(msg.X, msg.Y)
 		}
 	}
 
@@ -271,7 +321,7 @@ func (m *DashboardModel) handleModalClick(x, _ int) (tea.Model, tea.Cmd) {
 				// Show error in chat area instead of enabling chat
 				chatError := fmt.Sprintf("AI Chat Not Available\n\nError: %s\n\nTo configure AI:\n• Set OPENAI_API_KEY environment variable\n• For local AI: Set OPENAI_API_BASE\n• Use --ai-model flag to specify model", m.aiErrorMessage)
 				m.chatHistory = []string{fmt.Sprintf("System: %s", chatError)}
-				m.chatAutoScroll = true  // Enable auto-scroll for error message
+				m.chatAutoScroll = true // Enable auto-scroll for error message
 				return m, nil
 			}
 			// Automatically enter chat mode when clicking on chat section
@@ -295,14 +345,14 @@ func (m *DashboardModel) handleModelSelectionMouseEvent(msg tea.MouseMsg) (tea.M
 			// Scroll up - move selection up by 1
 			m.selectedModelIndex = max(0, m.selectedModelIndex-1)
 			return m, nil
-			
+
 		case tea.MouseButtonWheelDown:
 			// Scroll down - move selection down by 1
 			m.selectedModelIndex = min(len(m.availableModelsList)-1, m.selectedModelIndex+1)
 			return m, nil
 		}
 	}
-	
+
 	return m, nil
 }
 
@@ -412,12 +462,12 @@ func (m *DashboardModel) handleLogViewerModalMouseEvent(msg tea.MouseMsg) (tea.M
 }
 
 // handleMouseClick processes mouse clicks to switch between sections
-func (m *DashboardModel) handleMouseClick(x, y int) (tea.Model, tea.Cmd) {
+func (m *DashboardModel) handleMouseClick(x, y int) {
 	// Calculate section boundaries based on screen layout
 	// The dashboard uses a 2x2 grid layout with logs at the bottom
 
 	if m.width <= 0 || m.height <= 0 {
-		return m, nil
+		return
 	}
 
 	// Calculate grid dimensions
@@ -446,8 +496,6 @@ func (m *DashboardModel) handleMouseClick(x, y int) (tea.Model, tea.Cmd) {
 		// Bottom area: Logs section
 		m.activeSection = SectionLogs
 	}
-
-	return m, nil
 }
 
 // handleUpdate processes data updates
@@ -492,7 +540,7 @@ func (m *DashboardModel) handleUpdate(msg UpdateMsg) (tea.Model, tea.Cmd) {
 	if msg.ResetDrain3 && m.drain3Manager != nil {
 		m.drain3Manager.Reset()
 		m.drain3LastProcessed = 0 // Reset tracking
-		
+
 		// Also reset all severity-specific drain3 instances
 		for _, drain3Instance := range m.drain3BySeverity {
 			if drain3Instance != nil {
@@ -508,20 +556,20 @@ func (m *DashboardModel) handleUpdate(msg UpdateMsg) (tea.Model, tea.Cmd) {
 func (m *DashboardModel) addLogEntry(entry LogEntry) {
 	// Always add to the complete unfiltered buffer
 	m.allLogEntries = append(m.allLogEntries, entry)
-	
+
 	// Update statistics tracking
-	m.statsTotalLogsEver++  // Track total logs processed (unlimited)
+	m.statsTotalLogsEver++ // Track total logs processed (unlimited)
 	m.statsTotalBytes += int64(len(entry.RawLine))
-	
+
 	// Update lifetime statistics (unlimited tracking)
 	m.updateLifetimeStats(entry)
-	
+
 	// Update heatmap data for counts modal
 	m.updateHeatmapData(entry)
-	
+
 	// Update services data for counts modal (patterns will be derived from drain3)
 	m.updateCountsModalServices(entry)
-	
+
 	// Track logs for the current second
 	m.statsLogsThisSecond++
 
@@ -603,19 +651,19 @@ func (m *DashboardModel) updateCharts() {
 func (m *DashboardModel) updateLifetimeStats(entry LogEntry) {
 	// Update severity counts
 	m.lifetimeSeverityCounts[entry.Severity]++
-	
+
 	// Update host counts
 	if host, exists := entry.Attributes["host"]; exists && host != "" {
 		m.lifetimeHostCounts[host]++
 	}
-	
+
 	// Update service counts
 	if service, exists := entry.Attributes["service.name"]; exists && service != "" {
 		m.lifetimeServiceCounts[service]++
 	} else if service, exists := entry.Attributes["service"]; exists && service != "" {
 		m.lifetimeServiceCounts[service]++
 	}
-	
+
 	// Update attribute counts
 	for key, value := range entry.Attributes {
 		// Skip common keys that we handle separately for some stats
@@ -623,14 +671,14 @@ func (m *DashboardModel) updateLifetimeStats(entry LogEntry) {
 		if len(attrKey) < 200 { // Only include reasonable length attributes
 			m.lifetimeAttrCounts[attrKey]++
 		}
-		
+
 		// Update per-attribute-key value counts (for dashboard charts)
 		if m.lifetimeAttrKeyCounts[key] == nil {
 			m.lifetimeAttrKeyCounts[key] = make(map[string]int64)
 		}
 		m.lifetimeAttrKeyCounts[key][value]++
 	}
-	
+
 	// Update word counts (simplified word extraction for performance)
 	words := strings.Fields(strings.ToLower(entry.Message))
 	for _, word := range words {
@@ -649,7 +697,7 @@ func (m *DashboardModel) updateLifetimeStats(entry LogEntry) {
 // updateProcessingRateStats updates the processing rate statistics on every update cycle
 func (m *DashboardModel) updateProcessingRateStats() {
 	now := time.Now()
-	
+
 	// Check if a second has passed
 	if now.Sub(m.statsLastSecond) >= time.Second {
 		// Store the count for the completed second
@@ -658,7 +706,7 @@ func (m *DashboardModel) updateProcessingRateStats() {
 			if rate > m.statsPeakLogsPerSec {
 				m.statsPeakLogsPerSec = rate
 			}
-			
+
 			// Add to sliding window
 			m.statsRecentCounts = append(m.statsRecentCounts, m.statsLogsThisSecond)
 			m.statsRecentTimes = append(m.statsRecentTimes, m.statsLastSecond)
@@ -667,18 +715,18 @@ func (m *DashboardModel) updateProcessingRateStats() {
 			m.statsRecentCounts = append(m.statsRecentCounts, 0)
 			m.statsRecentTimes = append(m.statsRecentTimes, m.statsLastSecond)
 		}
-		
+
 		// Keep only last 10 seconds
 		if len(m.statsRecentCounts) > 10 {
 			m.statsRecentCounts = m.statsRecentCounts[1:]
 			m.statsRecentTimes = m.statsRecentTimes[1:]
 		}
-		
+
 		// Reset for new second
 		m.statsLastSecond = now
 		m.statsLogsThisSecond = 0
 	}
-	
+
 	// Clean up old entries from the sliding window (older than 10 seconds)
 	cutoffTime := now.Add(-10 * time.Second)
 	for len(m.statsRecentTimes) > 0 && m.statsRecentTimes[0].Before(cutoffTime) {
@@ -692,10 +740,10 @@ func (m *DashboardModel) updateHeatmapData(entry LogEntry) {
 	// Now entry.Timestamp is always the receive time, so we can use it directly
 	// This ensures the heatmap shows when logs were received, not their original timestamps
 	entryTime := entry.Timestamp.Truncate(time.Minute)
-	
+
 	// Find or create the heatmap minute entry
 	var targetMinute *HeatmapMinute
-	
+
 	// Look for existing minute entry
 	for i := range m.heatmapData {
 		if m.heatmapData[i].Timestamp.Equal(entryTime) {
@@ -703,7 +751,7 @@ func (m *DashboardModel) updateHeatmapData(entry LogEntry) {
 			break
 		}
 	}
-	
+
 	// If not found, create new minute entry
 	if targetMinute == nil {
 		newMinute := HeatmapMinute{
@@ -713,7 +761,7 @@ func (m *DashboardModel) updateHeatmapData(entry LogEntry) {
 		m.heatmapData = append(m.heatmapData, newMinute)
 		targetMinute = &m.heatmapData[len(m.heatmapData)-1]
 	}
-	
+
 	// Update the severity count for this minute
 	switch entry.Severity {
 	case "TRACE":
@@ -733,21 +781,21 @@ func (m *DashboardModel) updateHeatmapData(entry LogEntry) {
 	default:
 		targetMinute.Counts.Unknown++
 	}
-	
+
 	// Update total count
 	targetMinute.Counts.Total++
-	
+
 	// Keep a larger window of data (6 hours) to accommodate logs with older timestamps
 	// The actual 60-minute window filtering will be done during display
 	cutoffTime := time.Now().Add(-6 * time.Hour)
 	filteredData := make([]HeatmapMinute, 0)
-	
+
 	for _, minute := range m.heatmapData {
 		if minute.Timestamp.After(cutoffTime) {
 			filteredData = append(filteredData, minute)
 		}
 	}
-	
+
 	m.heatmapData = filteredData
 }
 
@@ -757,14 +805,14 @@ func (m *DashboardModel) updateCountsModalServices(entry LogEntry) {
 	if severity == "" {
 		severity = "UNKNOWN"
 	}
-	
+
 	// Update service counts by severity
 	serviceName := getServiceName(entry)
 	if serviceName != "" {
 		if m.servicesBySeverity[severity] == nil {
 			m.servicesBySeverity[severity] = make([]ServiceCount, 0)
 		}
-		
+
 		// Find existing service or create new one
 		found := false
 		for i := range m.servicesBySeverity[severity] {
@@ -774,18 +822,18 @@ func (m *DashboardModel) updateCountsModalServices(entry LogEntry) {
 				break
 			}
 		}
-		
+
 		if !found {
 			m.servicesBySeverity[severity] = append(m.servicesBySeverity[severity], ServiceCount{
 				Service: serviceName,
 				Count:   1,
 			})
 		}
-		
+
 		// Keep only top 10 services per severity and sort
 		m.sortAndTrimServiceCounts(severity)
 	}
-	
+
 	// Feed log to severity-specific drain3 instance
 	if drain3Instance, exists := m.drain3BySeverity[entry.Severity]; exists && drain3Instance != nil {
 		drain3Instance.AddLogMessage(entry.Message)
@@ -810,12 +858,12 @@ func getServiceName(entry LogEntry) string {
 	if service, ok := entry.Attributes["application"]; ok {
 		return service
 	}
-	
+
 	// Fallback to host if no service specified
 	if host, ok := entry.Attributes["host"]; ok {
 		return "host:" + host
 	}
-	
+
 	return "unknown"
 }
 
@@ -825,7 +873,7 @@ func (m *DashboardModel) sortAndTrimServiceCounts(severity string) {
 	if len(services) <= 1 {
 		return
 	}
-	
+
 	// Sort by count (descending)
 	for i := 0; i < len(services); i++ {
 		for j := i + 1; j < len(services); j++ {
@@ -834,10 +882,9 @@ func (m *DashboardModel) sortAndTrimServiceCounts(severity string) {
 			}
 		}
 	}
-	
+
 	// Keep only top 10
 	if len(services) > 10 {
 		m.servicesBySeverity[severity] = services[:10]
 	}
 }
-

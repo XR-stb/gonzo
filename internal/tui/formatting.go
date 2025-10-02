@@ -2,11 +2,46 @@ package tui
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 )
+
+var (
+	debugLogger *log.Logger
+	debugOnce   sync.Once
+)
+
+// initDebugLogger initializes the debug logger
+func initDebugLogger() {
+	debugOnce.Do(func() {
+		file, err := os.OpenFile("gonzo_debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			// Fallback to stdout if file creation fails
+			debugLogger = log.New(os.Stdout, "DEBUG ", log.LstdFlags)
+		} else {
+			debugLogger = log.New(file, "DEBUG ", log.LstdFlags)
+		}
+	})
+}
+
+// debugLog writes debug information to the log file
+func debugLog(format string, args ...interface{}) {
+	initDebugLogger()
+	debugLogger.Printf(format, args...)
+}
+
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 // formatLogEntry formats a log entry with colors
 func (m *DashboardModel) formatLogEntry(entry LogEntry, availableWidth int, isSelected bool) string {
@@ -215,47 +250,100 @@ func (m *DashboardModel) wrapTextToWidth(text string, width int) string {
 	var wrappedLines []string
 
 	for _, line := range lines {
-		// If line is shorter than width, add as-is
-		if len(line) <= width {
+		debugLog("Processing line: %q", line)
+		debugLog("visibleWidth: %q -> %d", line, lipgloss.Width(line))
+
+		// Use lipgloss.Width to get visual width (ignoring ANSI sequences)
+		if lipgloss.Width(line) <= width {
+			debugLog("Line fits within width %d, keeping as-is", width)
 			wrappedLines = append(wrappedLines, line)
 			continue
 		}
 
-		// Wrap long lines
+		debugLog("Line exceeds width %d, need to wrap", width)
+
+		// Check if line contains spaces for word-based wrapping
 		words := strings.Fields(line)
-		if len(words) == 0 {
-			wrappedLines = append(wrappedLines, line)
+		debugLog("Split into %d words: %v", len(words), words)
+
+		// If only one "word" (no spaces), do character-based wrapping
+		if len(words) <= 1 {
+			debugLog("Line has no spaces, using character-based wrapping")
+			// Character-based wrapping for continuous text
+			remaining := line
+			for len(remaining) > 0 {
+				// Find the maximum characters that fit within width
+				maxChars := width
+				if lipgloss.Width(remaining[:min(len(remaining), maxChars)]) <= width {
+					// Try to fit more characters
+					for maxChars < len(remaining) && lipgloss.Width(remaining[:maxChars+1]) <= width {
+						maxChars++
+					}
+				} else {
+					// Reduce characters until it fits
+					for maxChars > 0 && lipgloss.Width(remaining[:maxChars]) > width {
+						maxChars--
+					}
+				}
+
+				if maxChars <= 0 {
+					maxChars = 1 // At least one character
+				}
+
+				chunk := remaining[:maxChars]
+				debugLog("Adding chunk: %q (width: %d)", chunk, lipgloss.Width(chunk))
+				wrappedLines = append(wrappedLines, chunk)
+				remaining = remaining[maxChars:]
+			}
 			continue
 		}
 
+		// Word-based wrapping for text with spaces
 		currentLine := ""
-		for _, word := range words {
-			// If adding this word would exceed width, start new line
+		for i, word := range words {
+			debugLog("Processing word %d: %q", i, word)
+
+			// Test if adding this word would exceed width
 			testLine := currentLine
 			if testLine != "" {
 				testLine += " "
 			}
 			testLine += word
 
-			if len(testLine) > width {
+			testLineWidth := lipgloss.Width(testLine)
+			debugLog("testLine: %q -> width: %d (limit: %d)", testLine, testLineWidth, width)
+
+			// Use lipgloss.Width for visual width calculation
+			if testLineWidth > width {
+				debugLog("testLine exceeds width, need to wrap")
 				// If current line has content, save it and start new line with current word
 				if currentLine != "" {
+					debugLog("Saving current line: %q (width: %d)", currentLine, lipgloss.Width(currentLine))
 					wrappedLines = append(wrappedLines, currentLine)
 					currentLine = word
+					debugLog("Starting new line with word: %q", word)
 				} else {
-					// Single word is longer than width, truncate it
+					debugLog("Single word is longer than width")
+					// Single word is longer than width, need to break it
 					currentLine = word
-					if len(currentLine) > width {
-						currentLine = currentLine[:width-3] + "..."
+					// For very long words, we might need character-level breaking
+					if lipgloss.Width(currentLine) > width {
+						debugLog("Word %q is longer than width %d, keeping as-is", word, width)
+						// This is tricky with ANSI sequences, so we'll just keep the word as-is
+						// and let it overflow rather than risk breaking ANSI sequences
+						currentLine = word
 					}
 				}
 			} else {
+				debugLog("testLine fits, updating currentLine")
 				currentLine = testLine
 			}
+			debugLog("currentLine after processing word %d: %q (width: %d)", i, currentLine, lipgloss.Width(currentLine))
 		}
 
 		// Add remaining content
 		if currentLine != "" {
+			debugLog("Adding final line: %q (width: %d)", currentLine, lipgloss.Width(currentLine))
 			wrappedLines = append(wrappedLines, currentLine)
 		}
 	}

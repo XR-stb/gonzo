@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -70,7 +71,40 @@ func (m *DashboardModel) renderStatusLine() string {
 	}
 
 	// Build center section (status/help text) - dynamically adjust based on width
-	if m.filterActive {
+	// Check for copy message first (highest priority)
+	if m.copyMessage != "" && time.Since(m.copyMessageTime) < 3*time.Second {
+		statusText = m.copyMessage
+	} else if m.textSelectionActive {
+		// 显示选中的文本内容（截断以适应状态栏）
+		selectedText := m.selectionText
+		if len(selectedText) > 30 {
+			selectedText = selectedText[:27] + "..."
+		}
+
+		if narrow {
+			if selectedText != "" {
+				statusText = fmt.Sprintf("Selected: '%s' • Ctrl+C: Copy", selectedText)
+			} else {
+				statusText = fmt.Sprintf("Selection (%d,%d)-(%d,%d) • Ctrl+C: Copy",
+					m.selectionStartX, m.selectionStartY, m.selectionEndX, m.selectionEndY)
+			}
+		} else {
+			if selectedText != "" {
+				statusText = fmt.Sprintf("Selected: '%s' • Dragging: %v • Ctrl+C: Copy • ESC: Cancel",
+					selectedText, m.isDragging)
+			} else {
+				statusText = fmt.Sprintf("Text selected (%d,%d)-(%d,%d) • Dragging: %v • Ctrl+C: Copy • ESC: Cancel",
+					m.selectionStartX, m.selectionStartY, m.selectionEndX, m.selectionEndY, m.isDragging)
+			}
+		}
+	} else if m.lastMouseX > 0 || m.lastMouseY > 0 {
+		// Show mouse coordinates when not selecting text
+		if narrow {
+			statusText = fmt.Sprintf("Mouse: (%d,%d) • Click+drag to select", m.lastMouseX, m.lastMouseY)
+		} else {
+			statusText = fmt.Sprintf("Mouse: (%d,%d) • Click and drag to select text • Ctrl+C to copy", m.lastMouseX, m.lastMouseY)
+		}
+	} else if m.filterActive {
 		if narrow {
 			statusText = "Enter: Apply • ESC: Cancel"
 		} else {

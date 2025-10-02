@@ -58,16 +58,16 @@ type ServiceCount struct {
 // DashboardModel represents the main TUI model
 type DashboardModel struct {
 	// Dashboard state
-	width              int
-	height             int
-	activeSection      Section
-	showModal          bool
-	modalContent       string
-	showHelp           bool
-	showPatternsModal  bool
-	showStatsModal     bool
-	showCountsModal    bool
-	showLogViewerModal    bool
+	width                   int
+	height                  int
+	activeSection           Section
+	showModal               bool
+	modalContent            string
+	showHelp                bool
+	showPatternsModal       bool
+	showStatsModal          bool
+	showCountsModal         bool
+	showLogViewerModal      bool
 	showSeverityFilterModal bool
 
 	// Data
@@ -105,11 +105,11 @@ type DashboardModel struct {
 	chartsInitialized bool
 
 	// Selection state
-	selectedIndex    map[Section]int
-	selectedLogIndex int  // For log section navigation
-	viewPaused       bool // Pause view updates when navigating logs
-	logAutoScroll    bool // Auto-scroll to latest logs in log viewer
-	instructionsScrollOffset int // Scroll position for instructions/filter status screen
+	selectedIndex            map[Section]int
+	selectedLogIndex         int  // For log section navigation
+	viewPaused               bool // Pause view updates when navigating logs
+	logAutoScroll            bool // Auto-scroll to latest logs in log viewer
+	instructionsScrollOffset int  // Scroll position for instructions/filter status screen
 
 	// Modal display options
 	attributeWrappingEnabled bool // Whether to wrap attribute values instead of truncating them
@@ -181,6 +181,23 @@ type DashboardModel struct {
 
 	// Version checking
 	versionChecker *versioncheck.Checker // Version checker for update notifications
+
+	// Text selection
+	textSelectionActive bool   // Whether text selection is active
+	selectionStartX     int    // Selection start X coordinate
+	selectionStartY     int    // Selection start Y coordinate
+	selectionEndX       int    // Selection end X coordinate
+	selectionEndY       int    // Selection end Y coordinate
+	selectionText       string // Currently selected text
+	isDragging          bool   // Whether user is dragging to select
+
+	// Debug mouse tracking
+	lastMouseX int // Last mouse X coordinate for debugging
+	lastMouseY int // Last mouse Y coordinate for debugging
+
+	// Copy message display
+	copyMessage     string    // Message to display when copy operation completes
+	copyMessageTime time.Time // Time when copy message was set
 }
 
 // UpdateMsg contains data updates for the dashboard
@@ -261,32 +278,32 @@ func NewDashboardModel(maxLogBuffer int, updateInterval time.Duration, aiModel s
 	}
 
 	m := &DashboardModel{
-		maxLogBuffer:        maxLogBuffer,
-		updateInterval:      updateInterval,
-		filterInput:         filterInput,
-		searchInput:         searchInput,
-		chatInput:           chatInput,
-		selectedIndex:       make(map[Section]int),
-		logEntries:          make([]LogEntry, 0, maxLogBuffer),
-		allLogEntries:       make([]LogEntry, 0, maxLogBuffer),
-		countsHistory:       make([]SeverityCounts, 0),
-		heatmapData:         make([]HeatmapMinute, 0),
-		drain3BySeverity:    initializeDrain3BySeverity(),
-		servicesBySeverity:  make(map[string][]ServiceCount),
-		availableIntervals:  availableIntervals,
-		currentIntervalIdx:  currentIdx,
-		aiClient:            ai.NewOpenAIClient(aiModel), // Initialize AI client with configurable model
-		infoViewport:        viewport.New(80, 20),        // Will be resized later
-		chatViewport:        viewport.New(30, 20),        // Will be resized later
-		modalActiveSection:  "info",                      // Start with info section active
-		chatHistory:         make([]string, 0),
-		chatAutoScroll:      true,               // Enable auto-scroll for new messages
-		drain3Manager:       NewDrain3Manager(), // Initialize drain3 manager
-		drain3LastProcessed: 0,                  // Initialize drain3 tracking
-		logAutoScroll:       true,               // Start with auto-scroll enabled
-		showColumns:         true,               // Show Host/Service columns by default
-		instructionsScrollOffset: 0,             // Start at top of instructions
-		attributeWrappingEnabled: false,         // Default to truncating (not wrapping)
+		maxLogBuffer:             maxLogBuffer,
+		updateInterval:           updateInterval,
+		filterInput:              filterInput,
+		searchInput:              searchInput,
+		chatInput:                chatInput,
+		selectedIndex:            make(map[Section]int),
+		logEntries:               make([]LogEntry, 0, maxLogBuffer),
+		allLogEntries:            make([]LogEntry, 0, maxLogBuffer),
+		countsHistory:            make([]SeverityCounts, 0),
+		heatmapData:              make([]HeatmapMinute, 0),
+		drain3BySeverity:         initializeDrain3BySeverity(),
+		servicesBySeverity:       make(map[string][]ServiceCount),
+		availableIntervals:       availableIntervals,
+		currentIntervalIdx:       currentIdx,
+		aiClient:                 ai.NewOpenAIClient(aiModel), // Initialize AI client with configurable model
+		infoViewport:             viewport.New(80, 20),        // Will be resized later
+		chatViewport:             viewport.New(30, 20),        // Will be resized later
+		modalActiveSection:       "info",                      // Start with info section active
+		chatHistory:              make([]string, 0),
+		chatAutoScroll:           true,               // Enable auto-scroll for new messages
+		drain3Manager:            NewDrain3Manager(), // Initialize drain3 manager
+		drain3LastProcessed:      0,                  // Initialize drain3 tracking
+		logAutoScroll:            true,               // Start with auto-scroll enabled
+		showColumns:              true,               // Show Host/Service columns by default
+		instructionsScrollOffset: 0,                  // Start at top of instructions
+		attributeWrappingEnabled: false,              // Default to truncating (not wrapping)
 		// Initialize statistics tracking
 		statsStartTime:      time.Now(),
 		statsTotalBytes:     0,

@@ -16,6 +16,12 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.filterActive {
 		switch msg.String() {
 		case "ctrl+c":
+			// 如果有文本选择，复制文本而不是退出
+			if m.textSelectionActive && m.selectionText != "" {
+				cmd := m.copySelectedText()
+				m.clearTextSelection()
+				return m, cmd
+			}
 			return m, tea.Quit
 		case "escape", "esc":
 			m.filterActive = false
@@ -31,7 +37,7 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			// Exit filter input mode but keep filter applied
-			m.filterActive = false  // Exit input mode to allow other keys
+			m.filterActive = false // Exit input mode to allow other keys
 			m.filterInput.Blur()
 			// Make sure filtered view is up to date
 			m.updateFilteredView()
@@ -67,6 +73,12 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.searchActive {
 		switch msg.String() {
 		case "ctrl+c":
+			// 如果有文本选择，复制文本而不是退出
+			if m.textSelectionActive && m.selectionText != "" {
+				cmd := m.copySelectedText()
+				m.clearTextSelection()
+				return m, cmd
+			}
 			return m, tea.Quit
 		case "escape", "esc":
 			m.searchActive = false
@@ -81,7 +93,7 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			// Exit search input mode but keep search applied
-			m.searchActive = false  // Exit input mode to allow other keys
+			m.searchActive = false // Exit input mode to allow other keys
 			m.searchInput.Blur()
 			// Update search term
 			m.searchTerm = m.searchInput.Value()
@@ -144,15 +156,15 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.chatInput.Value() != "" && m.currentLogEntry != nil && m.aiClient != nil {
 				question := m.chatInput.Value()
 				m.chatHistory = append(m.chatHistory, fmt.Sprintf("You: %s", question))
-				
+
 				// Add working indicator to chat history
 				m.chatHistory = append(m.chatHistory, fmt.Sprintf("AI: %s Working on it...", m.getChatSpinner()))
-				m.chatAutoScroll = true  // Enable auto-scroll for new messages
-				
+				m.chatAutoScroll = true // Enable auto-scroll for new messages
+
 				m.chatInput.SetValue("")
 				// Keep chat mode active and focused after sending
 				m.chatInput.Focus()
-				m.chatAiAnalyzing = true  // Use chat-specific AI flag
+				m.chatAiAnalyzing = true // Use chat-specific AI flag
 
 				// Continue conversation with context
 				return m, func() tea.Msg {
@@ -169,6 +181,12 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "ctrl+c":
+			// 如果有文本选择，复制文本而不是退出
+			if m.textSelectionActive && m.selectionText != "" {
+				cmd := m.copySelectedText()
+				m.clearTextSelection()
+				return m, cmd
+			}
 			// Allow ctrl+c to quit even in chat mode
 			return m, tea.Quit
 		case "up", "k":
@@ -198,9 +216,21 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Critical keys that always work
 	switch msg.String() {
 	case "ctrl+c":
+		// 如果有文本选择，复制文本而不是退出
+		debugLog(fmt.Sprintf("Ctrl+C pressed: textSelectionActive=%v, selectionText='%s'", m.textSelectionActive, m.selectionText))
+		if m.textSelectionActive && m.selectionText != "" {
+			cmd := m.copySelectedText()
+			m.clearTextSelection() // 复制后清除选择
+			return m, cmd
+		}
 		return m, tea.Quit
 
 	case "escape", "esc":
+		// 优先处理文本选择取消
+		if m.textSelectionActive {
+			m.clearTextSelection()
+			return m, nil
+		}
 		if m.showModelSelectionModal {
 			m.showModelSelectionModal = false
 			return m, nil
@@ -351,7 +381,7 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showColumns = !m.showColumns
 			return m, nil
 		}
-		
+
 	case "i":
 		// Toggle statistics modal
 		if !m.showModal && !m.filterActive && !m.searchActive && !m.showHelp && !m.showPatternsModal && !m.showModelSelectionModal && !m.showSeverityFilterModal {
@@ -410,7 +440,7 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.showModal && !m.filterActive && !m.searchActive && !m.showSeverityFilterModal {
 			wasPaused := m.viewPaused
 			m.viewPaused = !m.viewPaused
-			
+
 			// If unpausing, process any accumulated logs
 			if wasPaused && !m.viewPaused {
 				// Process unprocessed logs through drain3
@@ -421,7 +451,7 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 					m.drain3LastProcessed = len(m.allLogEntries)
 				}
-				
+
 				// Update the filtered view with all accumulated logs
 				m.updateFilteredView()
 			}
@@ -490,7 +520,7 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.infoViewport, cmd = m.infoViewport.Update(msg)
 		return m, cmd
 	}
-	
+
 	// Statistics modal shortcuts
 	if m.showStatsModal {
 		switch msg.String() {
@@ -546,13 +576,13 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.infoViewport, cmd = m.infoViewport.Update(msg)
 		return m, cmd
 	}
-	
+
 	// Log viewer modal keyboard navigation
 	if m.showLogViewerModal {
 		// Save the previous active section and temporarily activate log section
 		previousSection := m.activeSection
 		m.activeSection = SectionLogs
-		
+
 		switch msg.String() {
 		case "up", "k":
 			// Navigate up in log list
@@ -606,14 +636,14 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "/":
 			// Start filter input
-			m.showLogViewerModal = false  // Close modal when starting filter
+			m.showLogViewerModal = false // Close modal when starting filter
 			m.activeSection = SectionFilter
 			m.filterActive = true
 			m.filterInput.Focus()
 			return m, nil
 		case "s":
 			// Start search input
-			m.showLogViewerModal = false  // Close modal when starting search
+			m.showLogViewerModal = false // Close modal when starting search
 			m.activeSection = SectionFilter
 			m.searchActive = true
 			m.searchInput.Focus()
@@ -629,12 +659,12 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.activeSection = previousSection
 			return m, nil
 		}
-		
+
 		// Restore previous section
 		m.activeSection = previousSection
 		return m, nil
 	}
-	
+
 	// Model selection modal shortcuts
 	if m.showModelSelectionModal {
 		switch msg.String() {
@@ -773,7 +803,7 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						// Show error in chat area instead of enabling chat
 						chatError := fmt.Sprintf("AI Chat Not Available\n\nError: %s\n\nTo configure AI:\n• Set OPENAI_API_KEY environment variable\n• For local AI: Set OPENAI_API_BASE\n• Use --ai-model flag to specify model", m.aiErrorMessage)
 						m.chatHistory = []string{fmt.Sprintf("System: %s", chatError)}
-						m.chatAutoScroll = true  // Enable auto-scroll for error message
+						m.chatAutoScroll = true // Enable auto-scroll for error message
 						return m, nil
 					}
 					// Automatically enter chat mode when switching to chat pane
@@ -881,7 +911,7 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.aiAnalysisResult = ""
 				m.chatHistory = []string{}
 				m.chatActive = false
-				m.chatAiAnalyzing = false  // Reset chat AI state
+				m.chatAiAnalyzing = false // Reset chat AI state
 				m.chatInput.SetValue("")
 				return m, nil
 			}
@@ -929,7 +959,6 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 	}
-
 
 	// Navigation shortcuts
 	switch msg.String() {
@@ -1036,7 +1065,7 @@ func (m *DashboardModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// Explicitly reset viewport scroll position
 				m.infoViewport.GotoTop()
 				m.chatViewport.GotoTop()
-				
+
 				// Clear any previous AI analysis result - user must press 'i' to analyze
 				m.aiAnalysisResult = ""
 			}
@@ -1119,7 +1148,7 @@ func (m *DashboardModel) moveSelection(delta int) {
 			m.logAutoScroll = true
 		}
 		// For positions in between, keep current auto-scroll state
-		
+
 		return
 	}
 
@@ -1183,7 +1212,7 @@ func (m *DashboardModel) showDetails() (tea.Model, tea.Cmd) {
 			m.currentLogEntry = &entry // Store current log entry for AI analysis
 			m.modalContent = m.formatLogDetails(entry, 60)
 			m.showModal = true
-			m.modalReady = false       // Reset viewport
+			m.modalReady = false // Reset viewport
 			// Explicitly reset viewport scroll position
 			m.infoViewport.GotoTop()
 			m.chatViewport.GotoTop()
@@ -1238,7 +1267,7 @@ func (m *DashboardModel) showDetails() (tea.Model, tea.Cmd) {
 			m.currentLogEntry = nil
 			return m, nil
 		}
-		
+
 	case SectionCounts:
 		// Show counts modal with heatmap and analysis
 		m.showCountsModal = true

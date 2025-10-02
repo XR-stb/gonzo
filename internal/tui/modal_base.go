@@ -112,6 +112,9 @@ func (m *DashboardModel) renderModalStatusBar() string {
 		statusItems = append(statusItems, "↑↓/Wheel: Scroll", "PgUp/PgDn: Page")
 	}
 
+	// Add copy functionality hint
+	statusItems = append(statusItems, "Drag: Select text", "Ctrl+C: Copy")
+
 	// Always show close option
 	statusItems = append(statusItems, "ESC: Close")
 
